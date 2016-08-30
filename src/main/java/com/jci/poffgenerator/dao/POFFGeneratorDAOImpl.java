@@ -9,12 +9,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
-
 import org.apache.commons.lang3.StringUtils;
 import org.json.simple.parser.JSONParser;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.stereotype.Service;
+import com.jci.poffgenerator.controller.POFFGeneratorController;
 import com.microsoft.azure.storage.CloudStorageAccount;
 import com.microsoft.azure.storage.table.CloudTable;
 import com.microsoft.azure.storage.table.CloudTableClient;
@@ -61,33 +63,14 @@ public class POFFGeneratorDAOImpl implements POFFGeneratorDAO {
 	  
 	  @Value("${flat.file.destination.mapping.folder.url}")
 	  private  String folderUrl;
-	 
-	  @Value("${flat.file.name.sender.duns}")
-	  private  String senderDuns;
-	 
-	  @Value("${flat.file.name.receiver.duns}")
-	  private  String receiverDuns;
-	  
-	  @Value("${flat.file.name.message.type}")
-	  private   String messageType;
-	  
-	  @Value("${flat.file.name.version}")
-	  private   String version;
-	  
-	  @Value("${flat.file.name.site.id}")
-	  private  String siteId;
-	  
-	  @Value("${flat.file.name.date.format}")
-	  private  String dateFormat;
-	  
-	  @Value("${flat.file.name.date.time.zone}")
-	  private  String timeZone;
-	  
+	  	 
 	  String orderNumber = "";
 	  
+	  private static final Logger LOG = LoggerFactory.getLogger(POFFGeneratorDAOImpl.class);
 	  
 
 	public Map<String,List<HashMap<String, Object>>> getPoDetails(){
+		LOG.info("### Fetching POFFGeneratorDAOImpl.getPoDetails() Begins ####");
 	    EntityProperty ep;
 	    Map<String,List<HashMap<String, Object>>> poNumToItemListMap = new HashMap<String,List<HashMap<String, Object>>>();
 	    
@@ -117,22 +100,24 @@ public class POFFGeneratorDAOImpl implements POFFGeneratorDAO {
 		}
 		catch (Exception e){
 		    e.printStackTrace();
+		    LOG.error("Error in Fetching POFFGeneratorDAOImpl.getPoDetails() Error: "+e.getMessage());
 		}
+	    LOG.info("### Fetching POFFGeneratorDAOImpl.getPoDetails() Ends ####");
 	    return poNumToItemListMap;
 	}
 	
-	
-	
-	public List<String> getPoItemsDetailsFlatFile(){
+	public LinkedHashMap<String, List<String>> getPoItemsDetailsFlatFile(){
+		LOG.info("### Fetching POFFGeneratorDAOImpl.getPoItemsDetailsFlatFile() Begins ####");
 	    List<LinkedHashMap<String, Object>> resultList = new ArrayList<LinkedHashMap<String, Object>>();
-	    LinkedHashMap<String, Object> resultMap = new LinkedHashMap<String, Object>();
+	    LinkedHashMap<String, List<String>> multiplePoMap = new LinkedHashMap<String, List<String>>();
+	    LinkedHashMap<String, Object> singlePoMap = new LinkedHashMap<String, Object>();
 		Map<String,List<HashMap<String, Object>>> poNumToItemListMap = getPoDetails();
-		List<String> tabFormatList = new ArrayList<String>();
 		
 		for(Map.Entry entry:poNumToItemListMap.entrySet()){
 			List<HashMap<String, Object>> list = (List<HashMap<String, Object>>) entry.getValue();
 			String deliveryState = "";
 			EntityProperty ep = null;
+			List<String> singlePotabFormatList = new ArrayList<String>();
 			for(int i=0;i<list.size();i++){
 				deliveryState = list.get(i).get(poColumnSupplierDelivery).toString();
 				orderNumber = list.get(i).get("OrderNumber").toString();
@@ -148,95 +133,83 @@ public class POFFGeneratorDAOImpl implements POFFGeneratorDAO {
 				    	for (String key : props.keySet()) {
 							ep = props.get(key);
 							if(key.equals(itemsStringKey)){
-								resultMap = headerMapping(ep.getValueAsString());
-								resultList.add(resultMap);
-								String tabFormatString = fixedLengthString(resultMap).toString();
-								tabFormatList.add(tabFormatString);
+								singlePoMap = headerMapping(ep.getValueAsString());
+								resultList.add(singlePoMap);
+								String tabFormatString = fixedLengthString(singlePoMap).toString();
+								singlePotabFormatList.add(tabFormatString);
 							}
 						}
 				    }
 				}catch (Exception e){
+					LOG.error("### Fetching POFFGeneratorDAOImpl.getPoItemsDetailsFlatFile() Error: "+e.getMessage());
 				    e.printStackTrace();
 				}
 			}
+			multiplePoMap.put(orderNumber, singlePotabFormatList);
 		}
-		return tabFormatList;
-	}
-	
-	public  String getFileName() {
-		StringBuilder name = new StringBuilder();
-		name.append(orderNumber);
-		name.append(".");
-		name.append(senderDuns);
-		name.append("_");
-		name.append(receiverDuns);
-		name.append("_");
-		name.append(messageType);
-		name.append("_");
-		name.append(version);
-		name.append("_");
-		name.append(siteId);
-		name.append("_");
-		
-		SimpleDateFormat isoFormat = new SimpleDateFormat(dateFormat);
-		isoFormat.setTimeZone(TimeZone.getTimeZone(timeZone));
-		String timestamp =isoFormat.format(new Date());
-		name.append(timestamp);
-		return name.toString();
+		LOG.info("### Fetching POFFGeneratorDAOImpl.getPoItemsDetailsFlatFile() Ends ####");
+		return multiplePoMap;
 	}
 	
 	public LinkedHashMap<String, Object> headerMapping(String jsonString){
-		LinkedHashMap<String, Object> resultMap = new LinkedHashMap<String, Object>();
+		LOG.info("### Mapping POItemDetails Begins ####");
+		LinkedHashMap<String, Object> singlePoMap = new LinkedHashMap<String, Object>();
 		try{
 		   JSONParser parser = new JSONParser();
 		   HashMap<String,String> headerMapping = (HashMap<String,String>) parser.parse(new FileReader(jsonFileName));
 		   for(int i=0;i<headerMapping.size();i++){
 			   HashMap<String, Object> obj = (HashMap<String, Object>) parser.parse(jsonString);
-			   resultMap.put(headerMapping.get(Integer.toString(i)), obj.get(headerMapping.get(Integer.toString(i))));
+			   singlePoMap.put(headerMapping.get(Integer.toString(i)), obj.get(headerMapping.get(Integer.toString(i))));
 		   }
 		}catch(Exception e){
+			LOG.error("Exception in Mapping POItemDetails: "+e.getMessage());
 			e.printStackTrace();
 		}
-		return resultMap;
+		LOG.info("### Mapping POItemDetails Ends ####");
+		return singlePoMap;
 	}
 	
 	public StringBuilder fixedLengthString(LinkedHashMap<String, Object> map){
 		StringBuilder line = new StringBuilder();
 		int i = 0;
 		int size = map.size();
-		for(Map.Entry<String, Object> mapEntry : map.entrySet()){
-			if((size-1)==i){
-					if(isBlank(String.valueOf((mapEntry.getValue() == null) ? "":mapEntry.getValue().toString()))){
-						line.append(appendTab(""));
-					}else{
-						line.append(appendTab(mapEntry.getValue()));
-					}
-			 }else{
-				 if(isBlank(String.valueOf((mapEntry.getValue() == null) ? "":mapEntry.getValue().toString()))){
-						line.append(appendTab(""));
-					}else{
-						line.append(appendTab(mapEntry.getValue()));
-					}
-			 }
-			i++;
+		try{
+				for(Map.Entry<String, Object> mapEntry : map.entrySet()){
+					if((size-1)==i){
+							if(isBlank(String.valueOf((mapEntry.getValue() == null) ? "":mapEntry.getValue().toString()))){
+								line.append(appendTab(""));
+							}else{
+								line.append(appendTab(mapEntry.getValue()));
+							}
+					 }else{
+						 if(isBlank(String.valueOf((mapEntry.getValue() == null) ? "":mapEntry.getValue().toString()))){
+								line.append(appendTab(""));
+							}else{
+								line.append(appendTab(mapEntry.getValue()));
+							}
+					 }
+					i++;
+				}
+		}catch(Exception e){
+			LOG.error("Exception while mapping in POFFGeneratorDAOImpl.FixedLengthString(): "+e.getMessage());
+			e.printStackTrace();
 		}
 		return line;
 	}
 
-public static boolean isBlank(String val){
-	if("null".equals(val) || StringUtils.isBlank(val) || (val == null)){
-		return true;
+	private boolean isBlank(String val){
+		if("null".equals(val) || StringUtils.isBlank(val) || (val == null)){
+			return true;
+		}
+		return false;
 	}
-	return false;
-}
-
-
-
-public static String appendTab(Object value) {
-	if(value==null || "".equals(value) || "null".equals(value)){
-		return "\t";
-	}else{
-		return value+"\t";
+	
+	private String appendTab(Object value) {
+		if(value==null || "".equals(value) || "null".equals(value)){
+			return "\t";
+		}else{
+			return value+"\t";
+		}
 	}
-}
+
 }
